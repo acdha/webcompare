@@ -4,16 +4,15 @@ from difflib import SequenceMatcher
 from optparse import OptionParser
 from urlparse import urlparse
 
-import httplib
 import json
 import logging
 import lxml.html
 import os
 import re                       # "now you've got *two* problems"
 import sys
-import time
-import urllib2
 import _elementtidy
+
+from webtoolbox.clients import Spider
 
 class Result(object):
     """Return origin and target URL, HTTP success code, redirect urls, performance error, comparator stats.
@@ -114,7 +113,7 @@ class Response(object):
         else:
             self.htmltree = None
 
-class Walker(object):
+class Walker(Spider):
     """
     Walk origin URL, generate target URLs, retrieve both pages for comparison.
     """
@@ -125,33 +124,34 @@ class Walker(object):
         TODO:
         - Limit to subtree of origin  like http://oldsite.com/forums/
         """
+        super(Walker, self).__init__()
+
         self.origin_url_base = origin_url_base
         self.target_url_base = target_url_base
-        self.target_url_parts = urlparse(target_url_base)
+
+        self.parsed_origin_url = urlparse(origin_url_base)
+        self.parsed_target_url = urlparse(target_url_base)
+
+        # Process requests for both the origin and target servers:
+
+        self.allowed_hosts.add(self.parsed_origin_url.netloc)
+        self.allowed_hosts.add(self.parsed_target_url.netloc)
+
+        self.tree_processors.append(self.tree_comparator)
+
         self.comparators = []
         self.results = []
-        self.origin_urls_todo = [self.origin_url_base]
-        self.origin_urls_visited = []
-        self.ignoreres = [re.compile(ignorere) for ignorere in ignoreres]
+        self.result_cache = {}
+
+        if self.parsed_origin_url.path:
+            ignoreres.append('(?!%s|%s)' % (re.escape(self.parsed_origin_url.path), re.escape(self.parsed_target_url.path)))
+
+        if ignoreres:
+            logging.info("Compiling skip_link_re from: %s", ignoreres)
+            self.skip_link_re = re.compile("(%s)" % "|".join(ignoreres))
 
     def _texas_ranger(self):
         return "I think our next place to search is where military and wannabe military types hang out."
-
-    def _fetch_url(self, url):
-        """Retrieve a page by URL, return as Response object (code, content, htmltree, etc)
-        This could be overriden, e.g., to use an asynchronous call.
-        If this causes an exception, we just leave it for the caller.
-        """
-        return Response(urllib2.urlopen(url))
-
-    def _get_target_url(self, origin_url):
-        """Return URL for target based on (absolute) origin_url.
-        TODO: do I want to handle relative origin_urls?
-        """
-        if not origin_url.startswith(self.origin_url_base):
-            raise ValueError, "origin_url=%s does not start with origin_url_base=%s" % (
-                origin_url, self.origin_url_base)
-        return origin_url.replace(self.origin_url_base, self.target_url_base, 1)
 
     def _is_within_origin(self, url):
         """Return whether a url is within the origin_url hierarchy.
@@ -159,29 +159,6 @@ class Walker(object):
         the first part of the URL.
         """
         return url.startswith(self.origin_url_base)
-
-    def _normalize_url(self, url):
-        """Urls with searches, query strings, and fragments just bloat us.
-        Return normalized form which can then be check with the already done list.
-        I know: I should pre-compile these.
-        """
-        for ignorere in self.ignoreres:
-            url = re.sub(ignorere, "", url)
-        return url
-
-    def _get_urls(self, html, base_href): # UNUSED?
-        """Return list of objects representing absolute URLs found in the html.
-        [(element, attr, link, pos) ...]
-        TODO: May want to normalize these
-        - Need to make URLs absolute, take into account this doc's URL as base (?)
-        - .resolve_base_href()
-        - .make_links_absolute(base_href, resolve_base_href=True)
-        - See absolutizing here:
-          http://blog.ianbicking.org/2008/12/10/lxml-an-underappreciated-web-scraping-library
-        """
-        tree = lxml.html.fromstring(html)
-        tree.make_links_absolute(base_href, resolve_base_href=True)
-        return tree.iterlinks()
 
     def add_comparator(self, comparator_function):
         """Add a comparator method to the list of comparators to try.
@@ -197,10 +174,8 @@ class Walker(object):
         Could also use http://countergram.com/open-source/pytidylib/
         """
         xhtml, log = _elementtidy.fixup(html)
-        #return len(log.splitlines())
         # return the *list* of errors, for rendering in JS as a popup
         return log.splitlines()
-
 
     def json_results(self):
         """Return the JSON representation of results and stats.
@@ -216,86 +191,80 @@ class Walker(object):
         json_results = json.dumps(all_results, sort_keys=True, indent=4)
         return json_results
 
-    def walk_and_compare(self):
-        """Start at origin_url, generate target urls, run comparators, return dict of results.
-        If there are no comparators, we will just return all the origin and target urls
-        and any redirects we've encountered.
-        TODO: remove unneeded testing and logging, clean up if/else/continue
-        """
-        while self.origin_urls_todo:
-            lv = len(self.origin_urls_visited)
-            lt = len(self.origin_urls_todo)
-            logging.info("visited=%s todo=%s %03s%% try url=%s" % (
-                    lv, lt, int(100.0 * lv / (lv + lt)), self.origin_urls_todo[0]))
-            origin_url = self.origin_urls_todo.pop(0)
-            self.origin_urls_visited.append(origin_url)
-            try:
-                t = time.time()
-                origin_response = self._fetch_url(origin_url)
-                origin_time = time.time() - t
-            except (urllib2.URLError, httplib.BadStatusLine), e:
-                logging.warning("Could not fetch origin_url=%s -- %s" % (origin_url, e))
-                result = ErrorResult(origin_url, getattr(e, 'code', 0)) # no HTTP code if DNS not found
-                self.results.append(result)
-                logging.info("result(err resp): %s" % result)
-                continue
-            if origin_response.code != 200: # TODO: do I need this check? or code block?
-                result = BadOriginResult(origin_url, origin_response.code)
-                self.results.append(result)
-                logging.warning(result)
-                continue
-            else:
-                if origin_response.content_type.startswith("text/html"):
-                    origin_html_errors = self.count_html_errors(origin_response.content)
-                    for url_obj in origin_response.htmltree.iterlinks():
-                        url = self._normalize_url(url_obj[2])
-                        if not self._is_within_origin(url):
-                            logging.debug("Skip url=%s not within origin_url=%s" % (url, self.origin_url_base))
-                        elif url not in self.origin_urls_todo and url not in self.origin_urls_visited:
-                            logging.debug("adding URL=%s" % url)
-                            self.origin_urls_todo.append(url)
-                target_url = self._get_target_url(origin_url)
-                logging.debug("about to fetch target_url=%s" % target_url)
-                try:
-                    t = time.time()
-                    target_response = self._fetch_url(target_url)
-                    target_time = time.time() - t
-                except urllib2.URLError, e:
-                    result = BadTargetResult(origin_url, origin_response.code, origin_time=origin_time,
-                                             origin_html_errors=origin_html_errors,
-                                             target_url=target_url, target_code=getattr(e, "code", e.errno))
-                    self.results.append(result)
-                    logging.warning(result)
-                    continue
-                comparisons = {}
-                if origin_response.htmltree == None or target_response.htmltree == None:
-                    logging.warning("compare: None for origin htmltree=%s or target htmltree=%s" % (
-                            origin_response.htmltree, target_response.htmltree))
-                else:
-                    target_html_errors = self.count_html_errors(target_response.content)
-                    for comparator in self.comparators:
-                        proximity = comparator.compare(origin_response, target_response)
-                        comparisons[comparator.__class__.__name__] = proximity
-                result = GoodResult(origin_url, origin_response.code, origin_time=origin_time,
-                                    origin_html_errors=origin_html_errors,
-                                    target_url=target_url, target_code=target_response.code,
-                                    target_time=target_time,
-                                    target_html_errors=target_html_errors,
-                                    comparisons=comparisons)
-                self.results.append(result)
-                logging.info(result)
+    def queue(self, url):
+        super(Walker, self).queue(url)
+        
+        if url.startswith(self.origin_url_base):
+            super(Walker, self).queue(url.replace(self.origin_url_base, self.target_url_base))
+        else:
+            super(Walker, self).queue(url.replace(self.target_url_base, self.origin_url_base))
 
+    def tree_comparator(self, url, tree):
+        if url in self.result_cache:
+            logging.warning("Somehow html_body_comparator was run twice for %s - perhaps due to redirects?", url)
 
+        self.result_cache[url] = tree
+        
+        if url.startswith(self.origin_url_base):
+            origin_url = url
+            target_url = url.replace(self.origin_url_base, self.target_url_base)
+        elif url.startswith(self.target_url_base):
+            target_url = url
+            origin_url = url.replace(self.target_url_base, self.origin_url_base)
+        else:
+            logging.info("Skipping out-of-origin URL: %s - redirect target?", url)
+            return
 
-# TODO: instantiation and invocation of Normalizer and Comparator feels stilted and awkward.
+        assert target_url != origin_url
 
-class Normalizer(object):
-    """TODO: should I be subclassing an LXML stipper? (oh baby)
-    """
-    def __init__(self, htmlstring):
-        self.htree = lxml.html.fromstring(htmlstring)
-    def normalize(self):
-        return self.htree.text_content().lower() # TODO removes spaces implied by tags??
+        origin_status = self.site_structure[origin_url]
+        target_status = self.site_structure[target_url]
+
+        if not (origin_url in self.result_cache and target_url in self.result_cache):
+            logging.debug("Waiting for both %s and %s to be retrieved; %d responses awaiting completion", origin_url, target_url, len(self.result_cache))
+            return
+        
+        origin_tree = self.result_cache.pop(origin_url)
+        target_tree = self.result_cache.pop(target_url)
+
+        if origin_status.code != 200:
+            result = BadOriginResult(origin_url, origin_status.code)
+            self.results.append(result)
+            logging.warning(result)
+            return
+
+        if target_status.code != 200:
+            result = BadTargetResult(origin_url, target_status.code,
+                origin_time=origin_status.time,
+                # BUG: origin_html_errors="",
+                target_url=target_url,
+                target_code=target_status.code
+            )
+            self.results.append(result)
+            logging.warning(result)
+            return
+
+        comparisons = {}
+
+        for comparator in self.comparators:
+            proximity = comparator.compare(
+                origin_tree,
+                target_tree
+            )
+            comparisons[comparator.__class__.__name__] = proximity
+
+        result = GoodResult(origin_url, origin_status.code,
+            origin_time=origin_status.time,
+            # BUG: origin_html_errors=origin_html_errors,
+            target_url=target_url,
+            target_code=target_status.code,
+            target_time=target_status.time,
+            # BUG: target_html_errors=target_html_errors,
+            comparisons=comparisons
+        )
+        self.results.append(result)
+        logging.info(result)
+
 
 class Comparator(object):
     """Compare HTML trees, return number 0-100 representing less-more similarity.
@@ -340,45 +309,37 @@ class TitleComparator(Comparator):
     """Compare <title> content from the reponse in a fuzzy way.
     Origin: "NASA Science", Target: "Site Map - NASA Science"
     """
-    def compare(self, origin_response, target_response):
+    def compare(self, origin_tree, target_tree):
         origin_title = target_title = None
         try:
-            origin_title = origin_response.htmltree.xpath("//html/head/title")[0].text
-            target_title = target_response.htmltree.xpath("//html/head/title")[0].text
+            origin_title = origin_tree.xpath("//html/head/title")[0].text
+            target_title = target_tree.xpath("//html/head/title")[0].text
         except IndexError, e:
-            logging.warning("Couldn't find a origin_title=%s or target_title=%s" % (origin_title, target_title))
+            logging.warning("Couldn't find a origin_title=%s or target_title=%s", origin_title, target_title)
             return self.match_nothing
         return self.fuzziness(origin_title, target_title)
 
-class ContentComparator(Comparator):
-    def compare(self, origin_response, target_response):
-        return self.fuzziness(origin_response.content, target_response.content)
-
 class BodyComparator(Comparator):
-    def compare(self, origin_response, target_response):
+    def compare(self, origin_tree, target_tree):
         origin_body = target_body = None
         try:
-            origin_body = origin_response.htmltree.xpath("//html/body")[0].text_content().lower()
-            target_body = target_response.htmltree.xpath("//html/body")[0].text_content().lower()
+            origin_body = origin_tree.xpath("//html/body")[0].text_content().lower()
+            target_body = target_tree.xpath("//html/body")[0].text_content().lower()
         except (IndexError, AttributeError), e:
-            logging.warning("Couldn't find a origin_body=%s or target_body=%s" % (origin_body, target_body))
+            logging.warning("Couldn't find a origin_body=%s or target_body=%s", origin_body, target_body)
             return self.match_nothing
         return self.fuzziness(origin_body, target_body)
 
 class LengthComparator(Comparator):
-    def compare(self, origin_response, target_response):
-        olen = origin_response.content_length
-        tlen = target_response.content_length
-        if olen == 0 or tlen == 0:
-            logging.warning("Zero length olen=%s tlen=%s" % (olen, tlen))
+    def compare(self, origin_tree, target_tree):
+        origin_html = lxml.html.tostring(origin_tree).strip()
+        target_html = lxml.html.tostring(target_tree).strip()
+
+        if not origin_html or not target_html:
+            logging.warning("Zero length response: olen=%s tlen=%s", len(origin_html), len(target_html))
             return self.match_nothing
-        olen = float(olen)
-        tlen = float(tlen)
-        if olen < tlen:
-            fraction = olen / tlen
-        else:
-            fraction = tlen / olen
-        return self.unfraction(fraction)
+
+        return self.unfraction(abs(len(origin_html) / len(target_html)))
 
 
 if __name__ == "__main__":
@@ -426,17 +387,17 @@ if __name__ == "__main__":
     w.add_comparator(LengthComparator())
     w.add_comparator(TitleComparator())
     w.add_comparator(BodyComparator())
-    w.add_comparator(ContentComparator())
-    w.walk_and_compare()
+    w.run((args[0],))
     f.write(w.json_results())
-    f.close()
+    if f != sys.stdout:
+        f.close()
 
     if options.profile:
         profiler.disable()
         profiler.dump_stats("webcompare.cprofile")
 
-        print
-        print "Dumped cProfile data to webcompare.cprofile: try loading it with `python -mpstats webcompare.cprofile`"
-        print
+        profiler.print_stats(sort="cumulative")
 
-        profiler.print_stats(sort=1)
+        print
+        print "Dumped full cProfile data to webcompare.cprofile: try loading it with `python -mpstats webcompare.cprofile`"
+        print

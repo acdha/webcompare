@@ -3,3 +3,7 @@ coverage
 nose
 pylint
 http://effbot.org/media/downloads/elementtidy-1.0-20050212.zip
+
+chardet
+html5lib
+webtoolbox
