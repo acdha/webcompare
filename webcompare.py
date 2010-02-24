@@ -7,6 +7,7 @@ from urlparse import urlparse
 import json
 import logging
 import lxml.html
+from lxml.etree import XPath
 import os
 import re                       # "now you've got *two* problems"
 import sys
@@ -143,6 +144,9 @@ class Walker(Spider):
         self.results = []
         self.result_cache = {}
 
+        self.origin_noise_xpaths = []
+        self.target_noise_xpaths = []
+
         if self.parsed_origin_url.path:
             ignoreres.append('(?!%s|%s)' % (re.escape(self.parsed_origin_url.path), re.escape(self.parsed_target_url.path)))
 
@@ -193,7 +197,7 @@ class Walker(Spider):
 
     def queue(self, url):
         super(Walker, self).queue(url)
-        
+
         if url.startswith(self.origin_url_base):
             super(Walker, self).queue(url.replace(self.origin_url_base, self.target_url_base))
         else:
@@ -204,7 +208,7 @@ class Walker(Spider):
             logging.warning("Somehow html_body_comparator was run twice for %s - perhaps due to redirects?", url)
 
         self.result_cache[url] = tree
-        
+
         if url.startswith(self.origin_url_base):
             origin_url = url
             target_url = url.replace(self.origin_url_base, self.target_url_base)
@@ -223,7 +227,7 @@ class Walker(Spider):
         if not (origin_url in self.result_cache and target_url in self.result_cache):
             logging.debug("Waiting for both %s and %s to be retrieved; %d responses awaiting completion", origin_url, target_url, len(self.result_cache))
             return
-        
+
         origin_tree = self.result_cache.pop(origin_url)
         target_tree = self.result_cache.pop(target_url)
 
@@ -243,6 +247,15 @@ class Walker(Spider):
             self.results.append(result)
             logging.warning(result)
             return
+
+        # De-noising step:
+        for xp in self.origin_noise_xpaths:
+            for e in xp(origin_tree):
+                e.getparent().remove(e)
+
+        for xp in self.target_noise_xpaths:
+            for e in xp(target_tree):
+                e.getparent().remove(e)
 
         comparisons = {}
 
@@ -328,6 +341,7 @@ class BodyComparator(Comparator):
         except (IndexError, AttributeError), e:
             logging.warning("Couldn't find a origin_body=%s or target_body=%s", origin_body, target_body)
             return self.match_nothing
+
         return self.fuzziness(origin_body, target_body)
 
 class LengthComparator(Comparator):
@@ -351,6 +365,10 @@ if __name__ == "__main__":
                       help="Ignore URLs matching this regular expression, can use multiple times")
     parser.add_option("-I", "--ignorere-file", dest="ignorere_file",
                       help="File containtaining regexps specifying URLs to ignore, one per line")
+    parser.add_option("--origin-noise-xpath-file",
+                      help="File containing XPath expressions to strip from origin server responses before comparison")
+    parser.add_option("--target-noise-xpath-file",
+                      help="File containing XPath expressions to strip from target server responses before comparison")
 
     parser.add_option("--profile", action="store_true", default=False, help="Use cProfile to run webcompare")
 
@@ -387,6 +405,14 @@ if __name__ == "__main__":
     w.add_comparator(LengthComparator())
     w.add_comparator(TitleComparator())
     w.add_comparator(BodyComparator())
+
+    if options.origin_noise_xpath_file:
+        w.origin_noise_xpaths = [ XPath(xp) for xp in file(options.origin_noise_xpath_file) ]
+    if options.target_noise_xpath_file:
+        w.target_noise_xpaths = [ XPath(xp) for xp in file(options.target_noise_xpath_file) ]
+
+
+
     w.run((args[0],))
     f.write(w.json_results())
     if f != sys.stdout:
