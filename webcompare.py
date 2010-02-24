@@ -94,9 +94,7 @@ class Response(object):
     Store info returned from, e.g., urllib2.urlopen(url)
     We need to read content once since we can't reread already-read content.
     We could parse this and save contained URLs? Not generic enough?
-    TODO: should subclass (undocumented) urllib2.urlopen() return object urllib.addinfourl ?
-          instead of copying all its attrs into our own?
-    TODO: should we avid non-html content?
+    TODO: should we avoid non-html content?
     """
     def __init__(self, http_response):
         self.http_response = http_response
@@ -178,8 +176,15 @@ class Walker(Spider):
         Could also use http://countergram.com/open-source/pytidylib/
         """
         xhtml, log = _elementtidy.fixup(html)
-        # return the *list* of errors, for rendering in JS as a popup
-        return log.splitlines()
+
+        log = log.splitlines() # Convert to a list for easy use elsewhere
+
+        try:
+            log.remove("line 1 column 1 - Warning: missing <!DOCTYPE> declaration")
+        except ValueError:
+            pass
+
+        return log
 
     def json_results(self):
         """Return the JSON representation of results and stats.
@@ -231,6 +236,9 @@ class Walker(Spider):
         origin_tree = self.result_cache.pop(origin_url)
         target_tree = self.result_cache.pop(target_url)
 
+        origin_html_errors = self.count_html_errors(lxml.html.tostring(origin_tree))
+        target_html_errors = self.count_html_errors(lxml.html.tostring(target_tree))
+
         if origin_status.code != 200:
             result = BadOriginResult(origin_url, origin_status.code)
             self.results.append(result)
@@ -240,7 +248,7 @@ class Walker(Spider):
         if target_status.code != 200:
             result = BadTargetResult(origin_url, target_status.code,
                 origin_time=origin_status.time,
-                # BUG: origin_html_errors="",
+                origin_html_errors=origin_html_errors,
                 target_url=target_url,
                 target_code=target_status.code
             )
@@ -268,11 +276,11 @@ class Walker(Spider):
 
         result = GoodResult(origin_url, origin_status.code,
             origin_time=origin_status.time,
-            # BUG: origin_html_errors=origin_html_errors,
+            origin_html_errors=origin_html_errors,
             target_url=target_url,
             target_code=target_status.code,
             target_time=target_status.time,
-            # BUG: target_html_errors=target_html_errors,
+            target_html_errors=target_html_errors,
             comparisons=comparisons
         )
         self.results.append(result)
