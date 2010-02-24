@@ -205,8 +205,6 @@ class Walker(Spider):
 
         if url.startswith(self.origin_url_base):
             super(Walker, self).queue(url.replace(self.origin_url_base, self.target_url_base))
-        else:
-            super(Walker, self).queue(url.replace(self.target_url_base, self.origin_url_base))
 
     def tree_comparator(self, url, tree):
         if url in self.result_cache:
