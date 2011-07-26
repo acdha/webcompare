@@ -14,7 +14,8 @@ import re                       # "now you've got *two* problems"
 import sys
 import time
 import urllib2
-import _elementtidy
+import html5lib
+
 
 class Result(object):
     """Return origin and target URL, HTTP success code, redirect urls, performance error, comparator stats.
@@ -105,15 +106,43 @@ class Response(object):
         self.url = self.http_response.geturl()
         self.content_type = self.http_response.headers['content-type']
         self.content = self.http_response.read()
+
+        self.htmltree = None
+        # Create a per-instance parser so callers can retrieve errors later:
+        self.parser = html5lib.HTMLParser()
+
         try:
             self.content_length = int(self.http_response.headers['content-length'])
         except KeyError, e:
             self.content_length = len(self.content)
+
         if self.content_type.startswith("text/html"):
-            self.htmltree = lxml.html.fromstring(self.content)
+            # The double-parse is wasteful but difficult to avoid until
+            # https://bugs.launchpad.net/lxml/+bug/780642 is resolved in a way
+            # which both works and preserves use of lxml's HTML methods like
+            # make_links_absolute
+
+            html5 = self.parser.parse(self.content)
+
+            if self.parser.errors:
+                logging.warning("Loaded HTML from %s with %d errors",
+                                self.url, len(self.parser.errors))
+
+            cleaned_html = html5lib.serializer.serialize(html5,
+                                                         encoding="utf-8")
+
+            self.htmltree = lxml.html.document_fromstring(cleaned_html)
+
             self.htmltree.make_links_absolute(self.url, resolve_base_href=True)
-        else:
-            self.htmltree = None
+
+    def get_parser_errors(self):
+        """Return an HTML tidy-like list of error strings"""
+        from html5lib.constants import E
+
+        return [u"Line %s column %s - Error: %s" % (pos[0], pos[1],
+                                                    E[error_code] % data)
+                for pos, error_code, data in self.parser.errors]
+
 
 class Walker(object):
     """
@@ -193,18 +222,6 @@ class Walker(object):
         """
         self.comparators.append(comparator_function)
 
-    def count_html_errors(self, html):
-        """Run the HTML through a tidy process and count the number of complaint lines.
-        Naive but a fine first pass.
-        Should probably count Warning and Error differently.
-        Could also use http://countergram.com/open-source/pytidylib/
-        """
-        xhtml, log = _elementtidy.fixup(html)
-        #return len(log.splitlines())
-        # return the *list* of errors, for rendering in JS as a popup
-        return unicode(log, errors='ignore').splitlines()
-
-
     def json_results(self):
         """Return the JSON representation of results and stats.
         Add the result type to each result so JS can filter on them.
@@ -253,7 +270,8 @@ class Walker(object):
                 continue
             else:
                 if origin_response.content_type.startswith("text/html"):
-                    origin_html_errors = self.count_html_errors(origin_response.content)
+                    origin_html_errors = origin_response.get_parser_errors()
+
                     for url_obj in origin_response.htmltree.iterlinks():
                         url = self._normalize_url(url_obj[2])
                         if not self._is_within_origin(url):
@@ -296,7 +314,8 @@ class Walker(object):
                     target_html_errors=[]
                     comparisons={}
                 else:
-                    target_html_errors = self.count_html_errors(target_response.content)
+                    target_html_errors = target_response.get_parser_errors()
+
                     comparisons = {}
                     for comparator in self.comparators:
                         proximity = comparator.compare(origin_response, target_response)
