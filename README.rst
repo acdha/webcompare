@@ -1,5 +1,3 @@
-.. -*- rst -*-
-
 ============
  WebCompare
 ============
@@ -49,12 +47,15 @@ applied first.  Here are some to consider:
 Usage
 =====
 
-Flags:
+Basic usage::
 
-* --source URL [should this be 'original'?]
-* --new URL
-* --output FILEPATH
+    webcompare.py http://oldserver/ http://newserver/
 
+To use the HTML comparison report (webcompare.html)::
+
+    webcompare.py -f webcompare.json http://oldserver/ http://newserver/
+
+Run with --help to see all available flags and options
 
 Implementation
 ==============
@@ -65,10 +66,10 @@ for other URL references, discards ones which don't match the origin
 Future
 ======
 
-Allow subclassing of comparators
+* Allow subclassing of comparators
 
-Allow subclassing of fetcher, perhaps for one that's asynchronous
+* Allow subclassing of fetcher, perhaps for one that's asynchronous
 
-Specify file of things to ignore: origin URLs? origin URL regexps? 
+* Specify file of things to ignore: origin URLs? origin URL regexps? 
 
-Shinier JavaScript
+* Shinier JavaScript
