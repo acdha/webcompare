@@ -1,4 +1,7 @@
-lxml
+# These are needed until the next lxml release provides pre-built eggs
+cython
+https://github.com/lxml/lxml/tarball/master#egg=lxml
+
 html5lib
 coverage
 nose

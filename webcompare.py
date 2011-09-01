@@ -1,20 +1,21 @@
 #!/usr/bin/env python
+# encoding: utf-8
+from __future__ import absolute_import
 
 from difflib import SequenceMatcher
 from optparse import OptionParser
 from urlparse import urlparse
-
 import httplib
 import json
 import logging
-import lxml.html
-from lxml.etree import XPath
 import os
 import re                       # "now you've got *two* problems"
 import sys
 import time
 import urllib2
-import html5lib
+
+from lxml.html import html5parser, document_fromstring, make_links_absolute
+from lxml.etree import XPath
 
 
 class Result(object):
@@ -47,9 +48,9 @@ class Result(object):
         self.target_html_errors = target_html_errors
         self.comparisons = comparisons
         if not isinstance(self.result_type, basestring):
-            raise TypeError, "result_type must be a string"
+            raise TypeError("result_type must be a string")
         if not isinstance(self.origin_url, basestring):
-            raise TypeError, "origin_url must be a string"
+            raise TypeError("origin_url must be a string")
 
         if self.origin_code != None and type(self.origin_code) != int:
             raise TypeError, "origin_code=%s must be a int" % self.origin_code
@@ -109,7 +110,7 @@ class Response(object):
 
         self.htmltree = None
         # Create a per-instance parser so callers can retrieve errors later:
-        self.parser = html5lib.HTMLParser()
+        self.parser = html5parser.HTMLParser()
 
         try:
             self.content_length = int(self.http_response.headers['content-length'])
@@ -117,23 +118,14 @@ class Response(object):
             self.content_length = len(self.content)
 
         if self.content_type.startswith("text/html"):
-            # The double-parse is wasteful but difficult to avoid until
-            # https://bugs.launchpad.net/lxml/+bug/780642 is resolved in a way
-            # which both works and preserves use of lxml's HTML methods like
-            # make_links_absolute
-
-            html5 = self.parser.parse(self.content)
+            # TODO: Use headers to look for encoding?
+            self.htmltree = self.parser.parse(self.content)
 
             if self.parser.errors:
                 logging.warning("Loaded HTML from %s with %d errors",
                                 self.url, len(self.parser.errors))
 
-            cleaned_html = html5lib.serializer.serialize(html5,
-                                                         encoding="utf-8")
-
-            self.htmltree = lxml.html.document_fromstring(cleaned_html)
-
-            self.htmltree.make_links_absolute(self.url, resolve_base_href=True)
+            make_links_absolute(self.htmltree, self.url, resolve_base_href=True)
 
     def get_parser_errors(self):
         """Return an HTML tidy-like list of error strings"""
@@ -200,20 +192,6 @@ class Walker(object):
         for ignorere in self.ignoreres:
             url = re.sub(ignorere, "", url)
         return url
-
-    def _get_urls(self, html, base_href): # UNUSED?
-        """Return list of objects representing absolute URLs found in the html.
-        [(element, attr, link, pos) ...]
-        TODO: May want to normalize these
-        - Need to make URLs absolute, take into account this doc's URL as base (?)
-        - .resolve_base_href()
-        - .make_links_absolute(base_href, resolve_base_href=True)
-        - See absolutizing here:
-          http://blog.ianbicking.org/2008/12/10/lxml-an-underappreciated-web-scraping-library
-        """
-        tree = lxml.html.fromstring(html)
-        tree.make_links_absolute(base_href, resolve_base_href=True)
-        return tree.iterlinks()
 
     def add_comparator(self, comparator_function):
         """Add a comparator method to the list of comparators to try.
@@ -332,16 +310,6 @@ class Walker(object):
 
 
 
-# TODO: instantiation and invocation of Normalizer and Comparator feels stilted and awkward.
-
-class Normalizer(object):
-    """TODO: should I be subclassing an LXML stipper? (oh baby)
-    """
-    def __init__(self, htmlstring):
-        self.htree = lxml.html.fromstring(htmlstring)
-    def normalize(self):
-        return self.htree.text_content().lower() # TODO removes spaces implied by tags??
-
 class Comparator(object):
     """Compare HTML trees, return number 0-100 representing less-more similarity.
     Examples:
@@ -430,6 +398,7 @@ if __name__ == "__main__":
     usage = 'usage: %prog [options] origin_url target_url   (do: "%prog --help" for help)'
     parser = OptionParser(usage)
     parser.add_option("-v", "--verbose", action="count", default=0, dest="verbose", help="log info about processing")
+    parser.add_option("--debug", action="store_true", default=False, help="Launch interactive debugger on failures")
     parser.add_option("-f", "--file", dest="filename", help="path to store the json results to (default is stdout)")
     parser.add_option("-i", "--ignorere", dest="ignoreres", action="append", default=[],
                       help="Ignore URLs matching this regular expression, can use multiple times")
@@ -471,21 +440,36 @@ if __name__ == "__main__":
         profiler = cProfile.Profile()
         profiler.enable()
 
-    w = Walker(args[0], args[1], ignoreres=options.ignoreres)
-    w.add_comparator(LengthComparator())
-    w.add_comparator(TitleComparator())
-    w.add_comparator(BodyComparator())
-    w.add_comparator(ContentComparator())
+    try:
+        w = Walker(args[0], args[1], ignoreres=options.ignoreres)
+        w.add_comparator(LengthComparator())
+        w.add_comparator(TitleComparator())
+        w.add_comparator(BodyComparator())
+        w.add_comparator(ContentComparator())
 
-    if options.origin_noise_xpath_file:
-        w.origin_noise_xpaths = [ XPath(xp) for xp in file(options.origin_noise_xpath_file) ]
-    if options.target_noise_xpath_file:
-        w.target_noise_xpaths = [ XPath(xp) for xp in file(options.target_noise_xpath_file) ]
+        if options.origin_noise_xpath_file:
+            w.origin_noise_xpaths = [XPath(xp) for xp in file(options.origin_noise_xpath_file)]
 
-    w.walk_and_compare()
-    f.write(w.json_results())
-    if f != sys.stdout:
-        f.close()
+        if options.target_noise_xpath_file:
+            w.target_noise_xpaths = [XPath(xp) for xp in file(options.target_noise_xpath_file)]
+
+        w.walk_and_compare()
+        f.write(w.json_results())
+        if f != sys.stdout:
+            f.close()
+    except StandardError as e:
+        if options.debug:
+            tb = sys.exc_info()[2]
+            sys.last_traceback = tb
+
+            print >>sys.stderr, u"Unhandled exception: %s" % e
+
+            try:
+                import ipdb as pdb
+            except ImportError:
+                import pdb
+
+            pdb.pm()
 
     if options.profile:
         profiler.disable()
