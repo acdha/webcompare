@@ -430,6 +430,7 @@ if __name__ == "__main__":
     usage = 'usage: %prog [options] origin_url target_url   (do: "%prog --help" for help)'
     parser = OptionParser(usage)
     parser.add_option("-v", "--verbose", action="count", default=0, dest="verbose", help="log info about processing")
+    parser.add_option("--debug", action="store_true", default=False, help="Launch interactive debugger on failures")
     parser.add_option("-f", "--file", dest="filename", help="path to store the json results to (default is stdout)")
     parser.add_option("-i", "--ignorere", dest="ignoreres", action="append", default=[],
                       help="Ignore URLs matching this regular expression, can use multiple times")
@@ -471,21 +472,36 @@ if __name__ == "__main__":
         profiler = cProfile.Profile()
         profiler.enable()
 
-    w = Walker(args[0], args[1], ignoreres=options.ignoreres)
-    w.add_comparator(LengthComparator())
-    w.add_comparator(TitleComparator())
-    w.add_comparator(BodyComparator())
-    w.add_comparator(ContentComparator())
+    try:
+        w = Walker(args[0], args[1], ignoreres=options.ignoreres)
+        w.add_comparator(LengthComparator())
+        w.add_comparator(TitleComparator())
+        w.add_comparator(BodyComparator())
+        w.add_comparator(ContentComparator())
 
-    if options.origin_noise_xpath_file:
-        w.origin_noise_xpaths = [ XPath(xp) for xp in file(options.origin_noise_xpath_file) ]
-    if options.target_noise_xpath_file:
-        w.target_noise_xpaths = [ XPath(xp) for xp in file(options.target_noise_xpath_file) ]
+        if options.origin_noise_xpath_file:
+            w.origin_noise_xpaths = [XPath(xp) for xp in file(options.origin_noise_xpath_file)]
 
-    w.walk_and_compare()
-    f.write(w.json_results())
-    if f != sys.stdout:
-        f.close()
+        if options.target_noise_xpath_file:
+            w.target_noise_xpaths = [XPath(xp) for xp in file(options.target_noise_xpath_file)]
+
+        w.walk_and_compare()
+        f.write(w.json_results())
+        if f != sys.stdout:
+            f.close()
+    except StandardError as e:
+        if options.debug:
+            tb = sys.exc_info()[2]
+            sys.last_traceback = tb
+
+            print >>sys.stderr, u"Unhandled exception: %s" % e
+
+            try:
+                import ipdb as pdb
+            except ImportError:
+                import pdb
+
+            pdb.pm()
 
     if options.profile:
         profiler.disable()
