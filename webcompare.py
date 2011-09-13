@@ -4,7 +4,7 @@ from __future__ import absolute_import
 
 from difflib import SequenceMatcher
 from optparse import OptionParser
-from urlparse import urlparse
+from urlparse import urlparse, urlunparse
 import httplib
 import json
 import logging
@@ -205,7 +205,10 @@ class Walker(object):
         """
         for ignorere in self.ignoreres:
             url = re.sub(ignorere, "", url)
-        return url
+
+        scheme, netloc, path, params, query, fragment = urlparse(url)
+
+        return urlunparse((scheme, netloc, path, params, query, None))
 
     def add_comparator(self, comparator_function):
         """Add a comparator method to the list of comparators to try.
