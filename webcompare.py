@@ -18,6 +18,8 @@ from lxml.etree import XPath
 import html5lib
 import lxml.html
 
+LOGGING_FORMAT = '%(asctime)s %(levelname)8s %(module)s.%(funcName)s: %(message)s'
+
 
 class Result(object):
     """Return origin and target URL, HTTP success code, redirect urls, performance error, comparator stats.
@@ -250,6 +252,9 @@ class Walker(object):
                     lv, lt, int(100.0 * lv / (lv + lt)), self.origin_urls_todo[0]))
             origin_url = unicode(self.origin_urls_todo.pop(0), errors='ignore')
             self.origin_urls_visited.append(origin_url)
+
+            logging.debug("Retrieving origin %s", origin_url)
+
             try:
                 t = time.time()
                 origin_response = self._fetch_url(origin_url)
@@ -281,7 +286,7 @@ class Walker(object):
                             logging.debug("adding URL=%s", url)
                             self.origin_urls_todo.append(url)
                 target_url = self._get_target_url(origin_url)
-                logging.debug("about to fetch target_url=%s" % target_url)
+                logging.debug("Retrieving target %s", target_url)
                 try:
                     t = time.time()
                     target_response = self._fetch_url(target_url)
@@ -301,6 +306,8 @@ class Walker(object):
                     logging.warning(result)
                     continue
 
+                logging.debug("Denoising HTML")
+
                 # De-noising step:
                 for xp in self.origin_noise_xpaths:
                     for e in xp(origin_response.htmltree):
@@ -318,9 +325,12 @@ class Walker(object):
                     target_html_errors = target_response.get_parser_errors()
 
                     comparisons = {}
+
+                    logging.debug("Starting content comparison")
                     for comparator in self.comparators:
                         proximity = comparator.compare(origin_response, target_response)
                         comparisons[comparator.__class__.__name__] = proximity
+                    logging.debug("Comparisons completed")
 
                 result = GoodResult(origin_url, origin_response.code, origin_time=origin_time,
                                     origin_html_errors=origin_html_errors,
@@ -448,12 +458,13 @@ if __name__ == "__main__":
     (options, args) = parser.parse_args()
     if len(args) != 2:
         parser.error("Must specify origin and target urls")
+
     if options.verbose > 1:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.basicConfig(format=LOGGING_FORMAT, level=logging.DEBUG)
     elif options.verbose:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(format=LOGGING_FORMAT, level=logging.INFO)
     else:
-        logging.basicConfig(level=logging.WARN)
+        logging.basicConfig(format=LOGGING_FORMAT, level=logging.WARN)
 
     if options.ignorere_file:
         file_ignores = open(os.path.expanduser(options.ignorere_file)).readlines()
