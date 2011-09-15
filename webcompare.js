@@ -103,6 +103,7 @@
                     "target_html_errors",
                     {key: "BodyComparator",     parser: "number"},
                     {key: "ContentComparator",  parser: "number"},
+                    {key: "NgramComparator",    parser: "number"},
                     {key: "LengthComparator",   parser: "number"},
                     {key: "TitleComparator",    parser: "number"}
                 ]
@@ -118,6 +119,7 @@
                 {key: "target_html_errors",             label: "Target<br/>Errors",    sortable: true, formatter: formatHtmlErrors},
                 {key: "BodyComparator",                 label: "Body<br/>proxim",      sortable: true},
                 {key: "ContentComparator",              label: "Content<br/>proxim",   sortable: true},
+                {key: "NgramComparator",                label: "NGram<br/>similarity", sortable: true},
                 {key: "LengthComparator",               label: "Length<br/>proxim",    sortable: true},
                 {key: "TitleComparator",                label: "Title<br/>proxim",     sortable: true},
                 {key: "origin_url",                     label: "URL Path",             sortable: true, formatter: formatUrlPath}
