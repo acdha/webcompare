@@ -268,9 +268,6 @@ class Walker(object):
         """Urls with searches, query strings, and fragments just bloat us.
         Return normalized form which can then be check with the already done list.
         """
-        for ignorere in self.ignoreres:
-            url = re.sub(ignorere, "", url)
-
         scheme, netloc, path, params, query, fragment = urlparse(url)
 
         return urlunparse((scheme, netloc, path, params, query, None))
@@ -345,9 +342,22 @@ class Walker(object):
                         if not self._is_within_origin(url):
                             logging.debug("Skip url=%s not within origin_url=%s",
                                           url, self.origin_url_base)
-                        elif url not in self.origin_urls_todo and url not in self.origin_urls_visited:
-                            logging.debug("adding URL=%s", url)
-                            self.origin_urls_todo.append(url)
+                            continue
+
+                        if url in self.origin_urls_todo:
+                            continue
+
+                        if url in self.origin_urls_visited:
+                            logging.debug("Skipping already seen URL %s", url)
+                            continue
+
+                        if any(i.match(url) for i in self.ignoreres):
+                            logging.debug("Ignoring URL %s", url)
+                            continue
+
+                        logging.debug("adding URL=%s", url)
+                        self.origin_urls_todo.append(url)
+
                 target_url = self._get_target_url(origin_url)
                 logging.debug("Retrieving target %s", target_url)
                 try:
