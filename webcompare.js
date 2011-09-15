@@ -3,14 +3,9 @@
   newcap: true, immed: true,
   indent: 4, white: true, onevar: false
 */
-/*global YAHOO, window */
-
-// I'm not proud of this: my first JavaScript, cargo-culted from the YUI site.
-
-var data;	// I need this for Firefox4 else complains about undefined 'data' during assignment but doesn't say where.
-
-"use strict";
-YAHOO.util.Event.onDOMReady(function () {
+/*global YAHOO, window, alert */
+(function () {
+    "use strict";
     var WebCompare = {
         load: function (data) {
             var urlPath = function (url) {
@@ -74,22 +69,26 @@ YAHOO.util.Event.onDOMReady(function () {
                 return res;
             }
 
-            var dataSource = new YAHOO.util.FunctionDataSource(function () { return flatten_results(data.results);}, {
-                doBeforeCallback : function (req, oFullResponse, res, cb) {
-                    var data     = res.results || [];
-                    var filtered = [];
-                    var i, l;
+            var dataSource = new YAHOO.util.FunctionDataSource(
+                function () {
+                    return flatten_results(data.results);
+                },
+                {
+                    doBeforeCallback: function (req, oFullResponse, res, cb) {
+                        var data     = res.results || [];
+                        var filtered = [];
+                        var i, l;
 
-                    var resFilter = getResFilter();
-                    for (i = 0, l = data.length; i < l; i += 1) {
-                        if (resFilter[data[i].result_type]) {
-                            filtered.push(data[i]);
+                        var resFilter = getResFilter();
+                        for (i = 0, l = data.length; i < l; i += 1) {
+                            if (resFilter[data[i].result_type]) {
+                                filtered.push(data[i]);
+                            }
                         }
+                        res.results = filtered;
+                        return res;
                     }
-                    res.results = filtered;
-                    return res;
-                }
-            });
+                });
             dataSource.responseType = YAHOO.util.DataSource.TYPE_JSARRAY;
             dataSource.responseSchema = {
                 fields: [
@@ -151,7 +150,7 @@ YAHOO.util.Event.onDOMReady(function () {
 
             // Reload the table when they select new filter options and click on Filter!
 
-            YAHOO.util.Event.addListener('filter', 'click', function () {
+            YAHOO.util.Event.addListener('.filters', 'change', function () {
                 dataTable.showTableMessage("Reloading ...");
                 dataTable.getDataSource().sendRequest(
                     '',
@@ -161,22 +160,25 @@ YAHOO.util.Event.onDOMReady(function () {
         }
     };
 
-    YAHOO.util.Connect.asyncRequest('GET', document.location.href.replace("html", "json"),
-    {
-        success: function (o) {
-            // Use the JSON Utility to parse the data returned from the server
-            try {
-                data = YAHOO.lang.JSON.parse(o.responseText);
-            }
-            catch (x) {
-                alert("Error loading webcompare data: " + x);
-                return;
-            }
+    YAHOO.util.Event.onDOMReady(function () {
+        YAHOO.util.Connect.asyncRequest('GET', document.location.href.replace("html", "json"),
+        {
+            success: function (o) {
+                var data;
 
-            WebCompare.load(data);
-        },
-        failure: function (o) {
-            alert("Unable to load webcompare data: " + o.status + ":" + o.statusText);
-        }
+                // Use the JSON Utility to parse the data returned from the server
+                try {
+                    data = YAHOO.lang.JSON.parse(o.responseText);
+                } catch (x) {
+                    alert("Error loading webcompare data: " + x);
+                    return;
+                }
+
+                WebCompare.load(data);
+            },
+            failure: function (o) {
+                alert("Unable to load webcompare data: " + o.status + ":" + o.statusText);
+            }
+        });
     });
-});
+})();

@@ -7,8 +7,34 @@ html {
     font-size: 10pt;
 }
 
+h1, h2 {
+    margin-bottom: .6em;
+    text-align: center;
+    font-weight: bold;
+}
+
+h1 {
+    font-size: xx-large;
+}
+
+h2 {
+    font-size: x-large;
+}
+
+p {
+    margin: .6em .3em;
+}
+
+input {
+    margin: .6em .3em;
+}
+
+.help {
+    font-style: oblique;
+}
+
 #container {
-	width: 90%;
+    width: 90%;
     margin: 1em auto;
     border: 1px solid #9f9f9f;
     padding: 1em;
@@ -20,35 +46,13 @@ html {
     -moz-border-radius: 4px;
 }
 
-h1, h2 {
-    margin-bottom: .6em;
-    text-align: center;
-    font-weight: bold;
-}
-
-h1 {
-	font-size: xx-large;
-}
-
-h2 {
-    font-size: x-large;
-}
-
-p {
-    margin: .6em .3em;
-}
-
 #container table {
     margin: 1em auto;
 }
 
-input {
-    margin: .6em .3em;
-}
-
 #container table thead th {
-	font-weight:bold;
-	text-align:center;
+    font-weight:bold;
+    text-align:center;
 }
 
 #container table thead th a {
