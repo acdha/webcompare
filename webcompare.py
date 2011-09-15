@@ -12,13 +12,45 @@ import os
 import re                       # "now you've got *two* problems"
 import sys
 import time
+import unicodedata
 import urllib2
 
-from lxml.etree import XPath
 import html5lib
+
+from lxml.etree import XPath
+from lxml.html.clean import Cleaner
 import lxml.html
 
 LOGGING_FORMAT = '%(asctime)s %(levelname)8s %(module)s.%(funcName)s: %(message)s'
+
+#: lxml Clean instance which removes things which are noisy for text comparison
+HTML_CLEANER = Cleaner(scripts=True, javascript=True, comments=True,
+                       style=True, links=True, meta=True,
+                       processing_instructions=True, embedded=True,
+                       frames=False, forms=False, annoying_tags=False,
+                       safe_attrs_only=True, add_nofollow=False,
+                       whitelist_tags=set(['iframe', 'embed']))
+
+
+def collapse_whitespace(text):
+    """Collapse multiple whitespace chars to a single space.
+    """
+    return u' '.join(text.split())
+
+
+def normalize_unicode(text):
+    """Convert all strings to Unicode NFC and strip them
+    """
+    if not isinstance(text, unicode):
+        text = text.decode("utf-8")
+
+    # Normalize unicode:
+    return unicodedata.normalize("NFC", text)
+
+
+def clean_text(text):
+    """Utility which performs routine text cleanup"""
+    return collapse_whitespace(normalize_unicode(text))
 
 
 class Result(object):
@@ -114,6 +146,7 @@ class Response(object):
         self.url = self.http_response.geturl()
         self.content_type = self.http_response.headers['content-type']
         self.content = self.http_response.read()
+        self._extracted_body = None
 
         self.htmltree = None
         # Create a per-instance parser so callers can retrieve errors later:
@@ -160,6 +193,25 @@ class Response(object):
                                                             error_message))
 
         return errors
+
+    def get_body_text(self):
+        """Return the HTML body's text"""
+
+        if self._extracted_body is None:
+            try:
+                body = self.htmltree.xpath("//html/body")[0]
+            except (IndexError, AttributeError) as e:
+                logging.warning("Couldn't extract HTML body: %s", e)
+                return
+
+            # Strip many noisy elements:
+            body = HTML_CLEANER.clean_html(body)
+
+            # Now we'll walk the body and store the cleaned version of each text run
+            # on a new line to avoid the differ attempting to match thousands of line
+            self._extracted_body = u'\n'.join(clean_text(i) for i in body.itertext())
+
+        return self._extracted_body
 
 
 class Walker(object):
@@ -374,16 +426,11 @@ class Comparator(object):
         """Return a fuzzy comparison value for the two (preprocessed) texts"""
         if origin_text and target_text:
             sm = SequenceMatcher(None,
-                                 self.collapse_whitespace(origin_text).lower(),
-                                 self.collapse_whitespace(target_text).lower())
+                                 collapse_whitespace(origin_text).lower(),
+                                 collapse_whitespace(target_text).lower())
             return self.unfraction(sm.ratio())
         else:
             return self.match_nothing
-
-    def collapse_whitespace(self, text):
-        """Collapse multiple whitespace chars to a single space.
-        """
-        return ' '.join(text.split())
 
     def compare(self, origin_response, target_response):
         """This is expected to be subclassed and then superclass invoked.
@@ -397,31 +444,36 @@ class TitleComparator(Comparator):
     """
     def compare(self, origin_response, target_response):
         origin_title = target_title = None
+
         try:
             origin_title = origin_response.htmltree.xpath("//html/head/title")[0].text
             target_title = target_response.htmltree.xpath("//html/head/title")[0].text
         except IndexError:
             logging.warning("Couldn't find a origin_title=%s or target_title=%s", origin_title, target_title)
             return self.match_nothing
-        return self.fuzziness(origin_title, target_title)
+
+        return self.fuzziness(clean_text(origin_title),
+                              clean_text(target_title))
 
 
 class ContentComparator(Comparator):
     def compare(self, origin_response, target_response):
-        return self.fuzziness(origin_response.content, target_response.content)
+        return self.fuzziness(clean_text(origin_response.content),
+                              clean_text(target_response.content))
 
 
 class BodyComparator(Comparator):
     def compare(self, origin_response, target_response):
-        origin_body = target_body = None
-        try:
-            origin_body = origin_response.htmltree.xpath("//html/body")[0].text_content().lower()
-            target_body = target_response.htmltree.xpath("//html/body")[0].text_content().lower()
-        except (IndexError, AttributeError):
+        origin_body = origin_response.get_body_text()
+        target_body = target_response.get_body_text()
+
+        if origin_body is None or target_body is None:
             logging.warning("Couldn't find a origin_body=%s or target_body=%s",
                             origin_body, target_body)
             return self.match_nothing
-        return self.fuzziness(origin_body, target_body)
+        else:
+            return self.fuzziness(origin_body,
+                                  target_body)
 
 
 class LengthComparator(Comparator):
@@ -446,8 +498,10 @@ class NgramComparator(Comparator):
     Requires http://pypi.python.org/pypi/ngram to be installed
     """
     def compare(self, origin_response, target_response):
-        return self.match_perfect * NGram.compare(origin_response.content,
-                                                  target_response.content)
+        origin_body = origin_response.get_body_text()
+        target_body = target_response.get_body_text()
+        similarity = NGram.compare(origin_body, target_body)
+        return int(self.match_perfect * similarity)
 
 
 if __name__ == "__main__":
