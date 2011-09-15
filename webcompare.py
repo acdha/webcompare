@@ -166,8 +166,8 @@ class Response(object):
             html5 = self.parser.parse(self.content)
 
             if self.parser.errors:
-                logging.warning("Loaded HTML from %s with %d errors",
-                                self.url, len(self.parser.errors))
+                logging.info("Loaded HTML from %s with %d errors",
+                             self.url, len(self.parser.errors))
 
             cleaned_html = html5lib.serializer.serialize(html5,
                                                          encoding="utf-8")
@@ -320,11 +320,12 @@ class Walker(object):
                 origin_response = self._fetch_url(origin_url)
                 origin_time = time.time() - t
             except (urllib2.URLError, httplib.BadStatusLine) as e:
-                logging.warning("Could not fetch origin_url=%s -- %s" % (origin_url, e))
+                logging.warning("Could not fetch origin_url=%s -- %s",
+                                origin_url, e)
                 # We won't have an HTTP code for low-level network failures:
                 result = ErrorResult(origin_url, getattr(e, 'code', 0))
                 self.results.append(result)
-                logging.info("result(err resp): %s" % result)
+                logging.info("result(err resp): %s", result)
                 continue
             # TODO: do I need this check? or code block?
             if origin_response.code != 200:
@@ -492,7 +493,7 @@ class LengthComparator(Comparator):
         olen = origin_response.content_length
         tlen = target_response.content_length
         if olen == 0 or tlen == 0:
-            logging.warning("Zero length olen=%s tlen=%s" % (olen, tlen))
+            logging.warning("Zero length olen=%s tlen=%s", olen, tlen)
             return self.match_nothing
         olen = float(olen)
         tlen = float(tlen)
@@ -555,9 +556,12 @@ if __name__ == "__main__":
         file_ignores = open(os.path.expanduser(options.ignorere_file)).readlines()
         file_ignores = [regex.rstrip('\n') for regex in file_ignores
                         if not regex.startswith("#")]
-        logging.warning("ignores from file: %s" % file_ignores)
+        logging.debug(u"Loaded URL ignore regexp %s: %s",
+                      options.ignorere_file,
+                      file_ignores)
         options.ignoreres.extend(file_ignores)
-    logging.warning("all ignores: %s" % options.ignoreres)
+    logging.info("Ignoring URLs matching these regular expressions: %s",
+                 options.ignoreres)
 
     # Open output file early so we detect problems before our long walk
     if options.filename:
