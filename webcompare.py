@@ -574,28 +574,29 @@ if __name__ == "__main__":
             print >>sys.stderr, "NgramComparator requires the ngram package"
 
         if options.origin_noise_xpath_file:
-            w.origin_noise_xpaths = [XPath(xp) for xp in file(options.origin_noise_xpath_file)]
+            w.origin_noise_xpaths = [XPath(xp) for xp in open(options.origin_noise_xpath_file)]
 
         if options.target_noise_xpath_file:
-            w.target_noise_xpaths = [XPath(xp) for xp in file(options.target_noise_xpath_file)]
+            w.target_noise_xpaths = [XPath(xp) for xp in open(options.target_noise_xpath_file)]
 
         w.walk_and_compare()
         f.write(w.json_results())
         if f != sys.stdout:
             f.close()
     except StandardError as e:
-        if options.debug:
-            tb = sys.exc_info()[2]
-            sys.last_traceback = tb
-
+        if not options.debug:
             print >>sys.stderr, u"Unhandled exception: %s" % e
+        else:
+            tb = sys.exc_info()[2]
 
             try:
                 import ipdb as pdb
             except ImportError:
                 import pdb
 
+            sys.last_traceback = tb
             pdb.pm()
+            raise
 
     if options.profile:
         profiler.disable()
