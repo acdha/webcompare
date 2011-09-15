@@ -430,6 +430,16 @@ class LengthComparator(Comparator):
         return self.unfraction(fraction)
 
 
+class NgramComparator(Comparator):
+    """Report NGram string similarity
+
+    Requires http://pypi.python.org/pypi/ngram to be installed
+    """
+    def compare(self, origin_response, target_response):
+        return self.match_perfect * NGram.compare(origin_response.content,
+                                                  target_response.content)
+
+
 if __name__ == "__main__":
     usage = 'usage: %prog [options] origin_url target_url   (do: "%prog --help" for help)'
     parser = OptionParser(usage)
@@ -489,7 +499,15 @@ if __name__ == "__main__":
         w.add_comparator(LengthComparator())
         w.add_comparator(TitleComparator())
         w.add_comparator(BodyComparator())
+        # This is basically the same as the BodyComparator except for a little more
+        # noise:
         w.add_comparator(ContentComparator())
+
+        try:
+            from ngram import NGram
+            w.add_comparator(NgramComparator())
+        except ImportError:
+            print >>sys.stderr, "NgramComparator requires the ngram package"
 
         if options.origin_noise_xpath_file:
             w.origin_noise_xpaths = [XPath(xp) for xp in file(options.origin_noise_xpath_file)]
