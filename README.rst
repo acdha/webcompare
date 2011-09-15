@@ -22,7 +22,7 @@ For each URL, generate the corresponding URL for the "new" site.  Get
 the page text content from each, source and new.  Record the source
 URL, new URL, any URLs that we were directed to for either, and for
 each of the comparison tests, some metric indicating how similar the
-pages are.  
+pages are.
 
 Probably best to return a list of these page-comparisons as a dict, in
 JSON format. Then it can be rendered and sorted and filtered directly
@@ -32,7 +32,7 @@ Comparisons are the hard part.  For textual comparisons, simple
 normalization -- condensing multiple spaces, removing punction -- is
 applied first.  Here are some to consider:
 
-* normalized <title/> 
+* normalized <title/>
 
 * normalized <body/>
 
@@ -70,6 +70,6 @@ Future
 
 * Allow subclassing of fetcher, perhaps for one that's asynchronous
 
-* Specify file of things to ignore: origin URLs? origin URL regexps? 
+* Specify file of things to ignore: origin URLs? origin URL regexps?
 
 * Shinier JavaScript

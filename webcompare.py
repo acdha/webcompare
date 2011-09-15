@@ -147,9 +147,19 @@ class Response(object):
         """Return an HTML tidy-like list of error strings"""
         from html5lib.constants import E
 
-        return [u"Line %s column %s - Error: %s" % (pos[0], pos[1],
-                                                    E[error_code] % data)
-                for pos, error_code, data in self.parser.errors]
+        errors = []
+
+        for pos, error_code, data in self.parser.errors:
+
+            try:
+                error_message = E[error_code] % data
+            except KeyError:
+                error_message = error_code
+
+            errors.append(u"Error at line %s col %s: %s" % (pos[0], pos[1],
+                                                            error_message))
+
+        return errors
 
 
 class Walker(object):
