@@ -150,7 +150,7 @@
 
             // Reload the table when they select new filter options and click on Filter!
 
-            YAHOO.util.Event.addListener('.filters', 'change', function () {
+            YAHOO.util.Event.addListener('filters', 'click', function () {
                 dataTable.showTableMessage("Reloading ...");
                 dataTable.getDataSource().sendRequest(
                     '',
