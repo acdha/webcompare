@@ -203,7 +203,6 @@ class Walker(object):
     def _normalize_url(self, url):
         """Urls with searches, query strings, and fragments just bloat us.
         Return normalized form which can then be check with the already done list.
-        I know: I should pre-compile these.
         """
         for ignorere in self.ignoreres:
             url = re.sub(ignorere, "", url)
@@ -468,7 +467,8 @@ if __name__ == "__main__":
 
     if options.ignorere_file:
         file_ignores = open(os.path.expanduser(options.ignorere_file)).readlines()
-        file_ignores = [regex.rstrip('\n') for regex in file_ignores]
+        file_ignores = [regex.rstrip('\n') for regex in file_ignores
+                        if not regex.startswith("#")]
         logging.warning("ignores from file: %s" % file_ignores)
         options.ignoreres.extend(file_ignores)
     logging.warning("all ignores: %s" % options.ignoreres)
