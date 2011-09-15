@@ -209,7 +209,9 @@ class Response(object):
 
             # Now we'll walk the body and store the cleaned version of each text run
             # on a new line to avoid the differ attempting to match thousands of line
-            self._extracted_body = u'\n'.join(clean_text(i) for i in body.itertext())
+            self._extracted_body = u'\n'.join(filter(None,
+                                                     filter(clean_text,
+                                                            body.itertext())))
 
         return self._extracted_body
 
@@ -368,7 +370,6 @@ class Walker(object):
                     continue
 
                 logging.debug("Denoising HTML")
-
                 # De-noising step:
                 for xp in self.origin_noise_xpaths:
                     for e in xp(origin_response.htmltree):
@@ -472,8 +473,8 @@ class BodyComparator(Comparator):
                             origin_body, target_body)
             return self.match_nothing
         else:
-            return self.fuzziness(origin_body,
-                                  target_body)
+            return self.fuzziness(collapse_whitespace(origin_body),
+                                  collapse_whitespace(target_body))
 
 
 class LengthComparator(Comparator):
@@ -500,6 +501,7 @@ class NgramComparator(Comparator):
     def compare(self, origin_response, target_response):
         origin_body = origin_response.get_body_text()
         target_body = target_response.get_body_text()
+
         similarity = NGram.compare(origin_body, target_body)
         return int(self.match_perfect * similarity)
 
