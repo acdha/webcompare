@@ -68,3 +68,23 @@ input {
 #container table .yui-dt1-col-origin_url {
     text-align: left;
 }
+
+.yui-dt-col-origin_code,
+.yui-dt-col-target_code,
+.yui-dt-col-origin_time,
+.yui-dt-col-target_time,
+.yui-dt-col-origin_html_errors,
+.yui-dt-col-target_html_errors,
+.yui-dt-col-BodyComparator,
+.yui-dt-col-ContentComparator,
+.yui-dt-col-NgramComparator,
+.yui-dt-col-LengthComparator,
+.yui-dt-col-TitleComparator {
+    max-width: 75px;
+    width: 75px;
+}
+
+.yui-dt-col-result_type, .yui-dt-col-origin_url {
+    width: 140px;
+    max-width: 140px;
+}
